@@ -1,0 +1,4 @@
+{"1":"# opt=calcfc freq b3lyp/6-311+g(d,p) em=gd3 pop=(nbo,savenbo) volume=tight iop(6/45=2000) geom=connectivity",
+"2":"# opt=calcfc freq b3lyp/6-311+g(d,p) em=gd3 pop=(nbo,savenbo) scrf=(smd,solvent=generic,read) geom=connectivity",
+"3":"# freq b3lyp/6-311+g(d,p) em=gd3 pop=(nbo,savenbo) scrf=(smd,solvent=generic,read) geom=connectivity",
+"4":"# opt=calcfc freq b3lyp/6-311+g(d,p) em=gd3 pop=(nbo,savenbo) scrf=(smd,solvent=generic,read) SCF=(novaracc, noincfock) int=acc2e=12 geom=connectivity"}

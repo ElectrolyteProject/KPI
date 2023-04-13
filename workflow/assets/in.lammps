@@ -1,0 +1,83 @@
+units             real
+atom_style        full
+atom_modify       map yes
+
+pair_style        lj/cut/coul/long 12 12
+pair_modify       mix geometric tail yes
+bond_style        harmonic
+special_bonds     lj/coul 0.0 0.0 0.5
+angle_style       harmonic            
+dihedral_style    opls
+improper_style    cvff
+kspace_style      pppm 1.0e-4
+
+neighbor          3.0 bin
+neigh_modify      every 1 delay 0 check yes
+
+read_data         $$ModelName.data
+
+thermo            1000
+thermo_style      custom step temp press pe vol
+
+timestep          1
+minimize          1.0e-12 1.0e-12 10000 10000
+
+fix               0 all nvt temp $$Temperature1 $$Temperature1 100
+run               $$Runtime0
+unfix             0
+write_data        $$ModelName_0.data
+fix               1 all npt temp $$Temperature1 $$Temperature1 100 iso 1 1 1000
+run               $$Runtime1
+unfix             1
+write_data        $$ModelName_1.data
+fix               2 all npt temp $$Temperature1 $$Temperature2 100 iso 1 1 1000
+run               $$Runtime2
+unfix             2
+write_data        $$ModelName_2.data
+fix               3 all npt temp $$Temperature2 $$Temperature2 100 iso 1 1 1000
+run               $$Runtime3
+unfix             3
+write_data        $$ModelName_3.data
+fix               4 all npt temp $$Temperature2 $$Temperature1 100 iso 1 1 1000
+run               $$Runtime4
+unfix             4
+write_data        $$ModelName_4.data
+fix               5 all npt temp $$Temperature1 $$Temperature1 100 iso 1 1 1000
+run               $$Runtime5
+unfix             5
+write_data        $$ModelName_5.data
+fix               6 all nvt temp $$Temperature1 $$Temperature1 1000
+run               $$Runtime6
+unfix             6
+write_data        $$ModelName_6.data
+
+reset_timestep	0
+
+$$ComputeType
+
+dump             1 all custom 200000 $$ModelName-100f.lammpstrj id type x y z
+dump             2 all custom 200000 $$ModelName_unwrapped-100f.lammpstrj id type xu yu zu
+dump             3 all custom 4000 $$ModelName.lammpstrj id type x y z
+dump             4 all custom 4000 $$ModelName_unwrapped.lammpstrj id type xu yu zu
+
+fix              7 all nvt temp $$Temperature1 $$Temperature1 100
+run              $$Runtime7
+unfix            7
+write_data       $$ModelName_7.data
+
+fix              8 all nvt temp $$Temperature1 $$Temperature1 100
+run              $$Runtime8
+unfix            8
+write_data       $$ModelName_8.data
+
+fix              9 all nvt temp $$Temperature1 $$Temperature1 100
+run              $$Runtime9
+unfix            9
+write_data       $$ModelName_9.data
+
+fix              10 all nvt temp $$Temperature1 $$Temperature1 100
+run              $$Runtime10
+unfix            10
+write_data       $$ModelName_10.data
+
+write_data       $$ModelName_op.data

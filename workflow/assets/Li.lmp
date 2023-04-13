@@ -1,0 +1,31 @@
+LAMMPS data file Created by LigParGen - (Written by Leela S. Dodda)
+
+       1 atoms
+       0 bonds
+       0 angles
+       0 dihedrals
+       0 impropers
+ 
+       1 atom types
+       0 bond types
+       0 angle types
+       0 dihedral types
+       0 improper types
+ 
+   -5.000000    45.000000 xlo xhi
+   -5.000000    45.000000 ylo yhi
+   -5.000000    45.000000 zlo zhi
+
+Masses
+
+       1        6.941
+
+Pair Coeffs
+
+       1      0.0005  2.87
+	  
+Atoms 
+
+     1      1      1 1.00000000    -1.040000    0.229000    0.000000
+	
+	
