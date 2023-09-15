@@ -1,0 +1,34 @@
+Initial number of molecules: 207704
+
+0-CAS:
+Rest molecules:  1866; Excluding: 99.10%
+
+1-Formation energy in vaccum (eV/atom) <-0.2:
+Rest molecules:   304; Excluding: 99.85%
+
+2-Binding energy (eV) >-2.5;<0:
+Rest molecules:   304; Excluding: 99.85%
+
+3-Viscosity of solvents (mPa s) <2:
+Rest molecules:    69; Excluding: 99.97%
+
+4-Viscosity of electrolytes (mPa s) <5:
+Rest molecules:    59; Excluding: 99.97%
+
+5-Transference number of Li :
+Rest molecules:    59; Excluding: 99.97%
+
+6-Diffusivity of Li (m^2/s) >10e-11:
+Rest molecules:    34; Excluding: 99.98%
+==========================================
+7-LUMO_sol (eV) >4:
+Rest molecules:    18; Excluding: 99.99%
+
+8-LUMO_cls (eV) >0:
+Rest molecules:    18; Excluding: 99.99%
+
+9-HOMO_sol (eV) <-5:
+Rest molecules:    18; Excluding: 99.99%
+
+10-HOMO_cls (eV) <-8:
+Rest molecules:    16; Excluding: 99.99%
