@@ -1,0 +1,7 @@
+#!/bin/bash
+
+prefix=''
+for id in $(seq $1 $2); do
+  echo $id
+  sbatch sub.${prefix}_${id}
+done
