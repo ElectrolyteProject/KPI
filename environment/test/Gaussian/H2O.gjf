@@ -1,4 +1,4 @@
-%chk=PATH_TO_SAVE_CHK_FILE.chk
+%chk=PATH_TO_SAVE_CHK_FILE
 %nproc=4
 # hf/3-21g geom=connectivity
 
