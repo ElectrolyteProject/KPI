@@ -1,0 +1,9 @@
+#!/bin/bash
+#SBATCH -J lmp
+#SBATCH -N 1
+#SBATCH -n 4
+#SBATCH -o lammps.log
+#SBATCH -e stderr.%j       
+
+module load LAMMPS/23Jun2022
+mpirun lmp -in in.lammps

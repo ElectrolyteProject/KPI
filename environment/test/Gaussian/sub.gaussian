@@ -1,0 +1,9 @@
+#!/bin/bash
+#SBATCH -J g16
+#SBATCH -n 4
+#SBATCH -N 1
+#SBATCH -o stdout.%j
+#SBATCH -e stderr.%j
+
+module load Gaussian
+g16 H2O.gjf
