@@ -1,0 +1,12 @@
+REMARK   1 File created by mkfile_lmp
+HETATM    1  F           0       1.763  -0.000  -0.285
+HETATM    2  C           0       0.525   0.000   0.479
+HETATM    3  C           0      -0.478  -1.068   0.024
+HETATM    4  O           0      -1.510   0.000  -0.236
+HETATM    5  C           0      -0.478   1.068   0.024
+HETATM    6  H           0       0.822   0.000   1.528
+HETATM    7  H           0      -0.826  -1.781   0.774
+HETATM    8  H           0      -0.183  -1.575  -0.898
+HETATM    9  H           0      -0.826   1.781   0.774
+HETATM   10  H           0      -0.183   1.575  -0.898
+END

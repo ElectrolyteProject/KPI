@@ -1,0 +1,45 @@
+# input files in.filename-in.lammps
+# initializing
+units			real
+dimension		3
+processors		* * *
+newton			on
+boundary		p p p
+atom_style		full
+atom_modify		map yes
+
+# simulation settings
+pair_style		lj/cut/coul/long 12 12
+pair_modify		mix geometric tail yes
+bond_style		harmonic
+special_bonds		lj/coul 0.0 0.0 0.5
+angle_style		harmonic			
+dihedral_style		opls
+improper_style		cvff
+kspace_style		pppm 1.0e-4
+
+# system definition
+read_data		760DME+200LiFSI_op.data
+
+neighbor		2.0 bin
+neigh_modify		every 5 delay 0 check yes
+
+timestep		1	#real unit fs
+
+# run a simulation
+	#outputs
+thermo			1000
+thermo_style		custom step temp press pe vol
+
+	#simulation
+neigh_modify		every 1 delay 0 check yes
+
+dump			1 all custom 1000 760DME+200LiFSI_op.lammpstrj id type x y z
+dump			2 all custom 1000 760DME+200LiFSI_op_unwrapped.lammpstrj id type xu yu zu
+
+fix			7 all nvt temp 298.0 298.0 1000
+run			100000
+unfix			7
+
+write_data		760DME+200LiFSI_op_op.data
+write_restart		760DME+200LiFSI_op_op.restart

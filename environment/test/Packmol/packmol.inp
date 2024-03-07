@@ -1,0 +1,16 @@
+seed 234
+tolerance 2.0
+filetype xyz
+output 250EC+250DEC+45LiPF6.xyz
+structure EC.xyz
+  number 250
+  inside box 0.0 0.0 0.0 42.13 42.13 42.13
+end structure
+structure DEC.xyz
+  number 250
+  inside box 0.0 0.0 0.0 42.13 42.13 42.13
+end structure
+structure LiPF6.xyz
+  number 45
+  inside box 0.0 0.0 0.0 42.13 42.13 42.13
+end structure

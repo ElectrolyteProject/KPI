@@ -1,0 +1,1 @@
+sh calcRESP2.sh vac-DMMS.fchk vac-DMMS DMMS-DMMS.fchk DMMS-DMMS
