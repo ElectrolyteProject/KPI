@@ -10,9 +10,10 @@ import bzip2_files
 import re
 import pandas as pd
 import multiprocessing as mp
+import glob
 
 
-def gjf_modifier(dir_run, chg_spmul, keywords, solva_info, ncores: int = 8):
+def gjf_modifier(dir_run, chg_spmul, keywords, solva_info, ncores: int = 8, sc='zghpc'):
     try:
         dc = solva_info['dielectric_constant_RESP2']
         soltype = 'resp2'
@@ -57,15 +58,39 @@ def gjf_modifier(dir_run, chg_spmul, keywords, solva_info, ncores: int = 8):
             f2.writelines(infos)
         dir_subscript = os.path.join(dir_run, 'gaussian.sh')
         with open(dir_subscript, 'w+') as f2:
-            f2.write('#!/bin/bash\n'
-                     '#SBATCH -J g16\n'
-                     '#SBATCH -N 1\n'
-                     '#SBATCH -n %s\n' % ncores +
-                     '#SBATCH -o stdout.%j\n'
-                     '#SBATCH -e stderr.%j\n'
-                     '\n'
-                     'module load Gaussian\n' +
-                     'g16 %s.gjf\n' % gjf_name)
+            if sc == 'zghpc':
+                f2.write('#!/bin/bash\n'
+                         '#SBATCH -J g16\n'
+                         '#SBATCH -N 1\n'
+                         '#SBATCH -n %s\n' % ncores +
+                         '#SBATCH -o stdout.%j\n'
+                         '#SBATCH -e stderr.%j\n'
+                         '\n' +
+                         'module load Gaussian\n' +
+                         'g16 %s.gjf\n' % gjf_name)
+            elif sc == 'zghpc_gpu':
+                f2.write('#!/bin/bash\n'
+                         '#SBATCH -J g16\n'
+                         '#SBATCH -p gpu\n'
+                         '#SBATCH -N 1\n'
+                         '#SBATCH -n %s\n' % ncores +
+                         '#SBATCH -o stdout.%j\n'
+                         '#SBATCH -e stderr.%j\n'
+                         '\n' +
+                         'module load Gaussian\n' +
+                         'g16 %s.gjf\n' % gjf_name)
+            elif sc == 'ts1000':
+                f2.write('#!/bin/bash\n'
+                         '#SBATCH -J g16\n'
+                         '#SBATCH -p cnall\n'
+                         '#SBATCH -N 1\n'
+                         '#SBATCH -n %s\n' % ncores +
+                         '#SBATCH -o stdout.%j\n'
+                         '#SBATCH -e stderr.%j\n'
+                         '\n' +
+                         'g16 %s.gjf\n' % gjf_name)
+            else:
+                raise ValueError('Supercomputer not supported!')
     else:
         raise FileExistsError
     return [os.path.join(dir_run, gjf_name + '.log'), os.path.join(dir_run, gjf_name + '.chk')]
@@ -91,7 +116,7 @@ def only_sub_dft(mol_name, sampid=0):
             keywords = dft.keywords(1)
             #keywords = keywords.replace('pop=(nbo,savenbo)', 'pop=nbo')
             #files = dft.job(dir_moldft1, mol_info, '0 1', keywords, ncores=ncores_dft)
-            files = gjf_modifier(dir_moldft1, '0 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = gjf_modifier(dir_moldft1, '0 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
             #gjf_name = mol_info['name'] + '_vum'
             #files = [os.path.join(dir_moldft1, gjf_name + '.log'),
             #         os.path.join(dir_moldft1, gjf_name + '.chk')]
@@ -125,7 +150,7 @@ def only_sub_dft(mol_name, sampid=0):
             mol_name = metadata['name']
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
-            files = gjf_modifier(dir_moldft2, '0 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = gjf_modifier(dir_moldft2, '0 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
             assist.monitor_job(dir_moldft2, wait_dft)
             extracted = dft.analyze_log(files[0])
             metadata.update(extracted)
@@ -156,7 +181,8 @@ def only_sub_dft(mol_name, sampid=0):
             mol_name = metadata['name']
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
-            files = gjf_modifier(dir_moldft_RESP2, '0 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            #keywords = keywords.replace('opt=calcfc', 'opt=calcfc scf=QC')
+            files = gjf_modifier(dir_moldft_RESP2, '0 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
             assist.monitor_job(dir_moldft_RESP2, wait_dft)
             extracted = dft.analyze_log(files[0])
             for key, value in extracted.items():
@@ -197,7 +223,7 @@ def only_sub_dft(mol_name, sampid=0):
             mol_info = {'name': '%s-Li+' % mol_name, 'coordinate': ["Li   0.0   0.0   0.0"]}
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
-            files = dft.job(dir_moldft_Li, mol_info, '1 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = dft.job(dir_moldft_Li, mol_info, '1 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
             assist.monitor_job(dir_moldft_Li, wait_dft)
             extracted = dft.analyze_log_li(files[0])
             metadata.update(extracted)
@@ -235,8 +261,9 @@ def only_sub_dft(mol_name, sampid=0):
                 metadata = local_fs.load_json_file(
                     os.path.join(dir_moldft, 'moldft3_%s-error' % sampid, mol_name + '.molinfo'))
             keywords = dft.keywords(2)
+            #keywords = keywords.replace('opt=calcfc', 'opt=calcfc SCF=(novaracc,noincfock)')
             keywords = keywords.replace('opt=calcfc', '')
-            files = gjf_modifier(dir_moldft3, '1 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = gjf_modifier(dir_moldft3, '1 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
             assist.monitor_job(dir_moldft3, wait_dft)
             extracted = dft.analyze_log(files[0])
             dft.formchk(files[1])
@@ -285,6 +312,43 @@ def only_sub_dft(mol_name, sampid=0):
             logging.info(e)
             logging.info(traceback.format_exc())
 
+    if args.start == 9:
+        try:
+            start_time = time.time()
+            logging.info(f'--- Task9 on {mol_name}: DFT optimization of ion-solvent cluster in vacuum ---')
+            dir_moldft4 = os.path.join(dir_moldft, 'moldft4')
+            if not os.path.exists(dir_moldft4):
+                os.mkdir(dir_moldft4)
+            dir_molmd2 = os.path.join(dir_mol, 'MD', 'molmd2')
+            metadata = local_fs.load_json_file(os.path.join(dir_molmd2, mol_name + '.molinfo'))
+            # Call Gaussian to optimize molecule geometry
+            keywords = dft.keywords(1)
+            files = gjf_modifier(dir_moldft4, '1 1', keywords, solva_info=metadata, ncores=ncores_dft, sc=config['supercomputer'])
+            assist.monitor_job(dir_moldft4, wait_dft)
+            extracted = dft.analyze_log(files[0])
+            metadata.update(extracted)
+            dft.formchk(files[1])
+            # Update time
+            if metadata.get('time(hour)'):
+                metadata['time(hour)'] += (time.time() - start_time) / 3600
+                round(metadata['time(hour)'], 4)
+            else:
+                metadata.update({'time(hour)': round((time.time() - start_time) / 3600, 4)})
+            # Output
+            local_fs.write_json_file(os.path.join(dir_moldft4, mol_name + '.molinfo'), metadata)
+            compressed_files = bzip2_files.bzip2_parallel([files[0]])
+            logging.info(f'--- Task9 on {mol_name}: {time.time() - start_time}.4f s ---')
+            #df_js.at[len(df_js) - 1, 'moldft4'] = 0
+            #df_js.to_csv(dir_js, index=False, header=True)
+        except Exception as e:
+            #df_js.at[len(df_js) - 1, 'moldft4'] = 1
+            #df_js.to_csv(dir_js, index=False, header=True)
+            raise e
+
+        fchks = glob.glob(os.path.join(dir_moldft, '*', '*.fchk'))
+        for fchk in fchks:
+            bzip2_files.bzip2(fchk)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -297,26 +361,58 @@ if __name__ == '__main__':
     dir_ogdb = config['ogdb']
     dir_db = config['moldb']
 
-    # formal params
-    ncores_dft = 64#16
-    ncores_md = 64#24
-    dcfreq = 18000
-    visfreq = 50000
-    visitv = 100000
-    sp = 200
-    wait_dft = 60
-    wait_md = 600
-    """
-    # test params
-    ncores_dft = 64
-    ncores_md = 64
-    dcfreq = 2
-    visfreq = 50
-    visitv = 100
-    sp = 200
-    wait_dft = 60
-    wait_md = 60
-    """
+    if config['supercomputer'] == 'zghpc':
+        # formal params
+        ncores_dft = 64
+        ncores_md = 64
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+        """
+        # test params
+        ncores_dft = 64
+        ncores_md = 64
+        dcfreq = 2
+        visfreq = 50
+        visitv = 100
+        sp = 200
+        wait_dft = 60
+        wait_md = 60
+        """
+    elif config['supercomputer'] == 'zghpc_gpu':
+        ncores_dft = 12
+        ncores_md = 2
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+    elif config['supercomputer'] == 'ts1000':
+        # ts1000
+        # formal params
+        ncores_dft = 56
+        ncores_md = 56
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+        """
+        # test params
+        ncores_dft = 56
+        ncores_md = 56
+        dcfreq = 2
+        visfreq = 50
+        visitv = 100
+        sp = 200
+        wait_dft = 60
+        wait_md = 60
+        """
     dir_jobstatus = os.path.join(os.path.dirname(dir_db), 'job_status')
     if not os.path.exists(dir_jobstatus):
         os.mkdir(dir_jobstatus)
@@ -329,14 +425,5 @@ if __name__ == '__main__':
     pool.map(only_sub_dft, allmols)
     pool.close()
     pool.join()
-    """
-    for mol in allmols:
-        try:
-            only_sub_dft(mol)
-        except Exception as e:
-            logging.info(e)
-            logging.info(traceback.format_exc())
-            continue
-    """
     logging.info('==================== END %s s ====================' % float(round((time.time() - zero_time_tot), 4)))
 

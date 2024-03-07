@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 import pandas as pd
 import json
@@ -6,6 +7,7 @@ import argparse
 from rdkit import Chem
 from rdkit.Chem import AllChem
 import random
+import re
 
 
 def convert(src, dst):
@@ -107,7 +109,10 @@ def convert_new(src, dst, num):
 
 def smi2coords(infoi, seed, dst):
     id = infoi[0]
-    smi = infoi[1]
+    smi_ = infoi[1]
+    # Standardize SMILES
+    mol_ = Chem.MolFromSmiles(smi_)
+    smi = Chem.MolToSmiles(mol_)
     mol_woH = Chem.MolFromSmiles(smi)
     mol = Chem.AddHs(mol_woH)  # add H atoms
     try:
@@ -143,6 +148,79 @@ def smi2coords(infoi, seed, dst):
     return id
 
 
+def write_subscript(config_name, startid):
+    #name = f'{prefix}_{suffix}'
+    dir_sub = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'SUB', f'sub.{re.split("-", config_name, 1)[1]}')
+    with open(dir_sub, 'w+') as f:
+        if args.sc == 'zghpc':
+            f.write('#!/bin/bash\n'
+                    '#SBATCH -J py\n'
+                    f'#SBATCH -w {args.w}\n'
+                    '#SBATCH -N 1\n'
+                    '#SBATCH -n 2\n'
+                    f'#SBATCH -o {re.split("-", config_name, 1)[1]}.%j.stdout\n'
+                    #f'#SBATCH -e {re.split("-", config_name, 1)[1]}.%j.stderr\n'
+                    '\n'
+                    'module load Gaussian\n'
+                    'module load BOSS\n'
+                    'module load Multiwfn\n'
+                    'module load Packmol\n'
+                    'module load VMD\n'
+                    f'python {os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "codes", "RUN_start.py")} '
+                    f'-config {config_name}.json '
+                    f'-start {startid} '
+                    '2>&1\n')
+        elif args.sc == 'zghpc_gpu':
+            f.write('#!/bin/bash\n'
+                    '#SBATCH -J py\n'
+                    '#SBATCH -p gpu\n'
+                    '#SBATCH -N 1\n'
+                    '#SBATCH -n 2\n'
+                    f'#SBATCH -o {re.split("-", config_name, 1)[1]}.%j.stdout\n'
+                    #f'#SBATCH -e {re.split("-", config_name, 1)[1]}.%j.stderr\n'
+                    '\n'
+                    'module load Gaussian\n'
+                    'module load BOSS\n'
+                    'module load Multiwfn\n'
+                    'module load Packmol\n'
+                    'module load VMD\n'
+                    f'python {os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "codes", "RUN_start.py")} '
+                    f'-config {config_name}.json '
+                    f'-start {startid} '
+                    '2>&1\n')
+        elif args.sc == 'ts1000':
+            f.write('#!/bin/bash\n'
+                    '#SBATCH -J py\n'
+                    '#SBATCH -p cnall\n'
+                    '#SBATCH -N 1\n'
+                    '#SBATCH -n 2\n'
+                    f'#SBATCH -o {re.split("-", config_name, 1)[1]}.%j.stdout\n'
+                    #f'#SBATCH -e {re.split("-", config_name, 1)[1]}.%j.stderr\n'
+                    '\n'
+                    'module load soft/anaconda3/config\n'
+                    'source /apps/soft/anaconda3/etc/profile.d/conda.sh\n'
+                    'conda activate yaonan\n'
+                    'module load soft/vmd/vmd-1.9.3\n'
+                    'module load soft/packmol\n'
+                    f'python {os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "codes", "RUN_start.py")} '
+                    f'-config {config_name}.json '
+                    f'-start {startid} '
+                    '2>&1\n')
+
+
+def write_batchsub(config_name, count):
+    dir_batchsub = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'SUB', f'batchsub.{config_name}')
+    with open(dir_batchsub, 'w+') as f:
+        f.write(
+            '#!/bin/bash\n'
+            f'prefix={config_name}\n'
+            f'for id in $(seq 0 {count}); do\n'
+            ' echo $id\n'
+            ' sbatch sub.${prefix}_${id}\n'
+            'done\n'
+        )
+
+
 def write_config(src, config_name, molecules, num):
     """
     Write the config file.
@@ -153,12 +231,13 @@ def write_config(src, config_name, molecules, num):
     - molecules: The list of molecules.
     - num: The number of molecules in a group.
     """
-    ogdb = f"/home/yaonan/Electrolyte_Project/ogdb/{config_name}"
-    moldb = f"/home/yaonan/Electrolyte_Project/moldb/{config_name}"
+    ogdb = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ogdb', config_name)
+    moldb = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'moldb', config_name)
     index = 0
-    salt = "LiFSI"
     remaining = len(molecules)
     count = 0
+    if args.salt is None:
+        raise ValueError('Salt type cannot be None!')
     while remaining > 0:
         with open(os.path.join(src, f"epoch_config-{config_name}_{count}.json"), 'w') as f:
             f.write(json.dumps(
@@ -167,12 +246,17 @@ def write_config(src, config_name, molecules, num):
                     "moldb": moldb,
                     "molecules": molecules[:num],
                     "index": index,
-                    "salt": salt,
+                    "salt": args.salt,
+                    "supercomputer": args.sc
                 },
                 indent=1))
+        write_subscript(f'epoch_config-{config_name}_{count}', args.taskid)
+        shutil.copyfile(os.path.join(src, f"epoch_config-{config_name}_{count}.json"),
+                        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'SUB', f"epoch_config-{config_name}_{count}.json"))
         del molecules[:num]
         count += 1
         remaining = len(molecules)
+    write_batchsub(config_name, count - 1)
 
 
 def main(args):
@@ -187,6 +271,10 @@ if __name__ == "__main__":
     parser.add_argument('-o', help="The path to output converted files.", type=str, default=None)
     parser.add_argument('--num', help="The number of molecules in a group.", type=int, default=None)
     parser.add_argument('-n', help="The config name.", type=str, default=None)
+    parser.add_argument('--salt', help="Salt type", type=str, default=None)
+    parser.add_argument('--sc', help="Supercomputer name", type=str, default=None)
+    parser.add_argument('-w', help="The node list.", type=str, default=None)
+    parser.add_argument('--taskid', help="The starting task id.", type=int, default=1)
     args = parser.parse_args()
     main(args)
 

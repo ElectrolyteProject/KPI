@@ -13,7 +13,8 @@ def tasks():
         5: 'moldft_RESP2',
         6: 'moldft_Li',
         7: 'moldft3',
-        8: 'molmd2'
+        8: 'molmd2',
+        9: 'moldft4'
     }
 
 
@@ -26,7 +27,7 @@ def check_stage(mol_name):
     dir_moldft = os.path.join(dir_mol, 'DFT')
     dir_molmd = os.path.join(dir_mol, 'MD')
     taskid_name = tasks()
-    for taskid in range(1, 9):
+    for taskid in range(1, 10):
         taskname = taskid_name[taskid]
         if taskid != 7:
             if 'dft' in taskname:
@@ -73,7 +74,7 @@ def check_stage(mol_name):
 def main():
     global dir_db
     global dir_js
-    dir_db = '/home/yaonan/Electrolyte_Project/moldb'
+    dir_db = '/home/yaonan/Electrolyte_Project/moldb/20230821-NPSSi_1C'
     dir_js = assist.job_status(os.getcwd(), 'all')
     count = 0
     mols = [mol for mol in os.listdir(dir_db) if mol.startswith('ep-')]

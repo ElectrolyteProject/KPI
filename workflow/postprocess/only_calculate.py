@@ -181,7 +181,7 @@ def calculate_task(mol_name, sampid=0):
                             molnumtot=kTotalCount, molnumsol=kMoleculeCount, freq=dcfreq, cutoff=5)
         vis, xls = md.calvis(dir_molmd2, mol_name, pressure_path, T, V,
                              freqs=[visfreq], interval=visitv, split_parts=sp)
-        diffs, msdxls = md.calmsd(dir_molmd2, model, mol_names)
+        diffs, msdxls, cond, betas = md.calmsd(dir_molmd2, model, mol_names)
         rdfs = md.calrdfCN(dir_molmd2, model, mol_names, mol_nums, V)
         lmp_path = os.path.join(dir_molmd2, mol_name + '.lmp')
         files.extend([xls, msdxls, lmp_path])
@@ -191,6 +191,8 @@ def calculate_task(mol_name, sampid=0):
             'dielectric_constant_ely': dc,
             'viscosity_ely(mPas)': vis,
             'diffusivity(m^2/s)': diffs,
+            'conductivity(S/cm)': cond,
+            'conductivity-fitting_betas': betas,
             'rdfCN': rdfs
         })
 
