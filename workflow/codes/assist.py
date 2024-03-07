@@ -144,6 +144,7 @@ def mass2element() -> Dict[str, str]:
      "6.941": "Li",
      "9.012": "Be",
      "10.811": "B",
+     "10.812": "B",
      "12.011": "C",
      "14.007": "N",
      "15.999": "O",
@@ -152,9 +153,11 @@ def mass2element() -> Dict[str, str]:
      "22.989": "Na",
      "24.305": "Mg",
      "26.982": "Al",
-     "28.085": "Si",
+     "28.086": "Si",
+     "30.974": "P",
      "30.977": "P",
      "32.065": "S",
+     "32.067": "S",
      "35.450": "Cl",
      "39.948": "Ar",
      "39.098": "K",
@@ -341,7 +344,8 @@ def job_status(dir_jobstatus, groupnum):
               'moldft3_0',
               'moldft3_1',
               'moldft3_2',
-              'molmd2']
+              'molmd2',
+              'moldft4']
     job_status_df = pd.DataFrame(columns=column)
     job_status_df.to_csv(dir_js, index=False, header=True)
     return dir_js

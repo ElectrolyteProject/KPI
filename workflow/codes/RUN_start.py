@@ -36,17 +36,17 @@ def workflow(mol_name):
     ##############################   1   ##############################
     try:
         start_time = time.time()
-        logging.info(f'--- Task1 on {mol_name}: DFT optimization in vacuum ---')
+        logging.info(f'--- Task1 on {mol_name}: DFT optimization of molecule in vacuum ---')
         dir_moldft1 = os.path.join(dir_moldft, 'moldft1')
         if not os.path.exists(dir_moldft1):
             os.mkdir(dir_moldft1)
         metadata = local_fs.load_json_file(os.path.join(dir_ogdb, mol_name + '.mol'))
-        mol_name = metadata['name']
         mol_info = {'name': mol_name, 'coordinate': metadata['coordinate']}
-        if args.start <= 1:
+        molinfo = glob.glob(os.path.join(dir_moldft1, '*.molinfo'))
+        if args.start <= 1 and len(molinfo) == 0:
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(1)
-            files = dft.job(dir_moldft1, mol_info, '0 1', keywords, ncores=ncores_dft)
+            files = dft.job(dir_moldft1, mol_info, '0 1', keywords, sc=config['supercomputer'], ncores=ncores_dft)
             assist.monitor_job(dir_moldft1, wait_dft)
             extracted = dft.analyze_log(files[0])
             metadata.update(extracted)
@@ -73,9 +73,10 @@ def workflow(mol_name):
             os.mkdir(dir_molmd1)
         metadata = local_fs.load_json_file(os.path.join(dir_moldft1, mol_name + '.molinfo'))
         mol_name = metadata['name']
-        mol_info = {'name': mol_name, 'coordinate': metadata['coordinate_vum'], 'radius': metadata['radius']}
+        mol_info = {'name': mol_name, 'coordinate': metadata['coordinate_vum'], 'radius': metadata['radius'], 'SMILES': metadata['SMILE']}
         kMoleculeCount = 200
-        if args.start <= 2:
+        molinfo = glob.glob(os.path.join(dir_molmd1, '*.molinfo'))
+        if args.start <= 2 and len(molinfo) == 0:
             # Prepare LAMMPS input files
             box_size = md.boxsize(mol_info, kMoleculeCount)
             model, mol_names, mol_nums = md.def_model(mol_name, kMoleculeCount)
@@ -87,7 +88,7 @@ def workflow(mol_name):
             # assert data_path == model + '.data', 'Name of the LAMMPS data file [%s] is not consistent!' % data_path
             # Call LAMMPS to simulate and analyze result
             md.job(dir_molmd1, 'in.lammps',
-                   model, 'dm press', ncores=ncores_md)
+                   model, 'dm press', sc=config['supercomputer'], ncores=ncores_md)
             assist.monitor_job(dir_molmd1, wait_md)
             files = md.md_judge(dir_molmd1)
             in_path = [item for item in files if item.endswith('in.lammps')][0]
@@ -138,11 +139,12 @@ def workflow(mol_name):
         metadata = local_fs.load_json_file(os.path.join(dir_molmd1, mol_name + '.molinfo'))
         mol_name = metadata['name']
         mol_info = {'name': mol_name, 'coordinate': metadata['coordinate_vum']}
-        if args.start <= 3:
+        molinfo = glob.glob(os.path.join(dir_moldft2, '*.molinfo'))
+        if args.start <= 3 and len(molinfo) == 0:
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
             #keywords = keywords.replace('pop=(nbo,savenbo)', 'pop=nbo')
-            files = dft.job(dir_moldft2, mol_info, '0 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = dft.job(dir_moldft2, mol_info, '0 1', keywords, solva_info=metadata, sc=config['supercomputer'], ncores=ncores_dft)
             assist.monitor_job(dir_moldft2, wait_dft)
             extracted = dft.analyze_log(files[0])
             metadata.update(extracted)
@@ -170,13 +172,14 @@ def workflow(mol_name):
             os.mkdir(dir_molmd_RESP2)
         mol_info = local_fs.load_json_file(os.path.join(dir_moldft2, mol_name + '.molinfo'))
         mol_name = mol_info['name']
-        mol_info_mod = {'name': mol_name, 'coordinate': mol_info['coordinate_sol']}
+        mol_info_mod = {'name': mol_name, 'coordinate': mol_info['coordinate_sol'], 'SMILES': metadata['SMILE']}
         kMoleculeCount = 200
         chk_vum_path = os.path.join(dir_moldft1, f'{mol_name}_vum.fchk')
         chk_sol_path = os.path.join(dir_moldft2, f'{mol_name}_sol.fchk')
         opdata_path = os.path.join(dir_molmd1, f'{str(kMoleculeCount)}{mol_name}_op.data')
         charge_path = dft.cal_resp2(chk_vum_path, chk_sol_path)
-        if args.start <= 4:
+        molinfo = glob.glob(os.path.join(dir_molmd_RESP2, '*.molinfo'))
+        if args.start <= 4 and len(molinfo) == 0:
             # Prepare LAMMPS input files
             box_size = md.boxsize(mol_info, kMoleculeCount)
             model, mol_names, mol_nums = md.def_model(mol_name, kMoleculeCount)
@@ -187,7 +190,7 @@ def workflow(mol_name):
             # assert data_path == model + '.data', 'Name of the LAMMPS data file [%s] is not consistent!' % data_path
             # Call LAMMPS to simulate and analyze result
             md.job(dir_molmd_RESP2, 'in.lammps',
-                   model, 'dm press', ncores=ncores_md)
+                   model, 'dm press', sc=config['supercomputer'], ncores=ncores_md)
             assist.monitor_job(dir_molmd_RESP2, wait_md)
             files = md.md_judge(dir_molmd_RESP2)
             in_path = [item for item in files if item.endswith('in.lammps')][0]
@@ -235,11 +238,12 @@ def workflow(mol_name):
         metadata = local_fs.load_json_file(os.path.join(dir_molmd_RESP2, mol_name + '.molinfo'))
         mol_name = metadata['name']
         mol_info = {'name': mol_name, 'coordinate': metadata['coordinate_vum']}
-        if args.start <= 5:
+        molinfo = glob.glob(os.path.join(dir_moldft_RESP2, '*.molinfo'))
+        if args.start <= 5 and len(molinfo) == 0:
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
             #keywords = keywords.replace('pop=(nbo,savenbo)', 'pop=nbo')
-            files = dft.job(dir_moldft_RESP2, mol_info, '0 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = dft.job(dir_moldft_RESP2, mol_info, '0 1', keywords, solva_info=metadata, sc=config['supercomputer'], ncores=ncores_dft)
             assist.monitor_job(dir_moldft_RESP2, wait_dft)
             extracted = dft.analyze_log(files[0])
             for key, value in extracted.items():
@@ -277,10 +281,11 @@ def workflow(mol_name):
         metadata = local_fs.load_json_file(os.path.join(dir_moldft_RESP2, mol_name + '.molinfo'))
         mol_name = metadata['name']
         mol_info = {'name': '%s-Li+' % mol_name, 'coordinate': ["Li   0.0   0.0   0.0"]}
-        if args.start <= 6:
+        molinfo = glob.glob(os.path.join(dir_moldft_Li, '*.molinfo'))
+        if args.start <= 6 and len(molinfo) == 0:
             # Call Gaussian to optimize molecule geometry
             keywords = dft.keywords(2)
-            files = dft.job(dir_moldft_Li, mol_info, '1 1', keywords, solva_info=metadata, ncores=ncores_dft)
+            files = dft.job(dir_moldft_Li, mol_info, '1 1', keywords, solva_info=metadata, sc=config['supercomputer'], ncores=ncores_dft)
             assist.monitor_job(dir_moldft_Li, wait_dft)
             extracted = dft.analyze_log_li(files[0])
             metadata.update(extracted)
@@ -322,13 +327,14 @@ def workflow(mol_name):
                 # metadata = local_fs.load_json_file(mol_name)
                 mol_name = metadata['name']
                 mol_info = {'name': '%s+Li+' % mol_name, 'coordinate': metadata['coordinate_samp'][0]}
-                if args.start <= 7:
+                molinfo = glob.glob(os.path.join(dir_moldft3, '*.molinfo'))
+                if args.start <= 7 and len(molinfo) == 0:
                     # Call Gaussian to optimize molecule geometry
                     # Use try-except in case gaussian not normally terminated and still remove the calculated samp coordinate
                     try:
                         keywords = dft.keywords(2)
                         #keywords = keywords.replace('pop=(nbo,savenbo)', 'pop=nbo')
-                        files = dft.job(dir_moldft3, mol_info, '1 1', keywords, solva_info=metadata, ncores=ncores_dft)
+                        files = dft.job(dir_moldft3, mol_info, '1 1', keywords, solva_info=metadata, sc=config['supercomputer'], ncores=ncores_dft)
                         assist.monitor_job(dir_moldft3, wait_dft)
                         extracted = dft.analyze_log(files[0])
                         dft.formchk(files[1])
@@ -416,12 +422,13 @@ def workflow(mol_name):
         mol_info = local_fs.load_json_file(os.path.join(dir_moldft3, mol_name + '.molinfo'))
         mol_name = mol_info['name']
         mol_names = '%s %s' % (mol_name, config['salt'])
-        mol_info_mod = {'name': mol_name, 'coordinate': mol_info['coordinate_sol']}
+        mol_info_mod = {'name': mol_name, 'coordinate': mol_info['coordinate_sol'], 'SMILES': metadata['SMILE']}
         kMoleculeCount = 200
         kSaltCount = 20
         kTotalCount = kMoleculeCount + kSaltCount
         mol_nums = '%s %s' % (kMoleculeCount, kSaltCount)
-        if args.start <= 8:
+        molinfo = glob.glob(os.path.join(dir_molmd2, '*.molinfo'))
+        if args.start <= 8 and len(molinfo) == 0:
             # Prepare LAMMPS input files
             box_size = md.boxsize(mol_info, kTotalCount)
             model, mol_names, mol_nums = md.def_model(mol_names, mol_nums)
@@ -438,7 +445,7 @@ def workflow(mol_name):
             # assert data_path == model + '.data', 'Name of the LAMMPS data file [%s] is not consistent!' % data_path
 
             # Call LAMMPS to simulate and analyze result
-            md.job(dir_molmd2, 'in.lammps', model, 'dm press', ncores=ncores_md)
+            md.job(dir_molmd2, 'in.lammps', model, 'dm press', sc=config['supercomputer'], ncores=ncores_md)
             assist.monitor_job(dir_molmd2, wait_md)
             files = md.md_judge(dir_molmd2)
             in_path = [item for item in files if item.endswith('in.lammps')][0]
@@ -449,7 +456,7 @@ def workflow(mol_name):
                                 molnumtot=kTotalCount, molnumsol=kMoleculeCount, freq=dcfreq, cutoff=5)
             vis, xls = md.calvis(dir_molmd2, mol_name, pressure_path, T, V,
                                  freqs=[visfreq], interval=visitv, split_parts=sp)
-            diffs, msdxls = md.calmsd(dir_molmd2, model, mol_names)
+            diffs, msdxls, cond, betas = md.calmsd(dir_molmd2, model, mol_names)
             rdfs = md.calrdfCN(dir_molmd2, model, mol_names, mol_nums, V)
             files.extend([xls, msdxls, lmp_path])
             mol_info.update({
@@ -458,6 +465,8 @@ def workflow(mol_name):
                 'dielectric_constant_ely': dc,
                 'viscosity_ely(mPas)': vis,
                 'diffusivity(m^2/s)': diffs,
+                'conductivity(S/cm)': cond,
+                'conductivity-fitting_betas': betas,
                 'rdfCN': rdfs
             })
             # Update time and core
@@ -480,6 +489,45 @@ def workflow(mol_name):
         df_js.to_csv(dir_js, index=False, header=True)
         raise e
 
+    ##############################   9   ##############################
+    try:
+        start_time = time.time()
+        logging.info(f'--- Task9 on {mol_name}: DFT optimization of ion-solvent cluster in vacuum ---')
+        dir_moldft4 = os.path.join(dir_moldft, 'moldft4')
+        if not os.path.exists(dir_moldft4):
+            os.mkdir(dir_moldft4)
+        metadata = local_fs.load_json_file(os.path.join(dir_molmd2, mol_name + '.molinfo'))
+        # Select the most stable structure coordinate
+        energy_cls = [eval(energy) for energy in metadata['HFenergy_cls']]
+        min_index = energy_cls.index(min(energy_cls))
+        mol_name = metadata['name']
+        mol_info = {'name': '%s+Li+' % mol_name, 'coordinate': metadata['coordinate_cls'][min_index]}
+        molinfo = glob.glob(os.path.join(dir_moldft4, '*.molinfo'))
+        if args.start <= 9 and len(molinfo) == 0:
+            # Call Gaussian to optimize molecule geometry
+            keywords = dft.keywords(1)
+            files = dft.job(dir_moldft4, mol_info, '1 1', keywords, sc=config['supercomputer'], ncores=ncores_dft)
+            assist.monitor_job(dir_moldft4, wait_dft)
+            extracted = dft.analyze_log(files[0])
+            metadata.update(extracted)
+            dft.formchk(files[1])
+            # Update time
+            if metadata.get('time(hour)'):
+                metadata['time(hour)'] += (time.time() - start_time) / 3600
+                round(metadata['time(hour)'], 4)
+            else:
+                metadata.update({'time(hour)': round((time.time() - start_time) / 3600, 4)})
+            # Output
+            local_fs.write_json_file(os.path.join(dir_moldft4, mol_name + '.molinfo'), metadata)
+            compressed_files = bzip2_files.bzip2_parallel([files[0]])
+            logging.info(f'--- Task9 on {mol_name}: {time.time() - start_time}.4f s ---')
+        df_js.at[len(df_js) - 1, 'moldft4'] = 0
+        df_js.to_csv(dir_js, index=False, header=True)
+    except Exception as e:
+        df_js.at[len(df_js) - 1, 'moldft4'] = 1
+        df_js.to_csv(dir_js, index=False, header=True)
+        raise e
+
     fchks = glob.glob(os.path.join(dir_moldft, '*', '*.fchk'))
     bzip2_files.bzip2_parallel(fchks)
     logging.info('=== %s: %s s ===\n' % (mol_name, float(round((time.time() - zero_time), 4))))
@@ -497,31 +545,62 @@ if __name__ == "__main__":
     dir_db = config['moldb']
     if not os.path.exists(dir_db):
         os.mkdir(dir_db)
-
-    # formal params
-    ncores_dft = 64
-    ncores_md = 64
-    dcfreq = 18000
-    visfreq = 50000
-    visitv = 100000
-    sp = 200
-    wait_dft = 60
-    wait_md = 1800
-    """
-    # test params
-    ncores_dft = 64
-    ncores_md = 64
-    dcfreq = 2
-    visfreq = 50
-    visitv = 100
-    sp = 200
-    wait_dft = 60
-    wait_md = 60
-    """
+    if config['supercomputer'] == 'zghpc':
+        # formal params
+        ncores_dft = 64
+        ncores_md = 64
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+        """
+        # test params
+        ncores_dft = 64
+        ncores_md = 64
+        dcfreq = 2
+        visfreq = 50
+        visitv = 100
+        sp = 200
+        wait_dft = 60
+        wait_md = 60
+        """
+    elif config['supercomputer'] == 'zghpc_gpu':
+        ncores_dft = 12
+        ncores_md = 2
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+    elif config['supercomputer'] == 'ts1000':
+        # ts1000
+        # formal params
+        ncores_dft = 56
+        ncores_md = 56
+        dcfreq = 18000
+        visfreq = 50000
+        visitv = 100000
+        sp = 200
+        wait_dft = 60
+        wait_md = 1800
+        """
+        # test params
+        ncores_dft = 56
+        ncores_md = 56
+        dcfreq = 2
+        visfreq = 50
+        visitv = 100
+        sp = 200
+        wait_dft = 60
+        wait_md = 60
+        """
     dir_jobstatus = os.path.join(dir_ogdb.split('ogdb')[0], 'job_status')
     if not os.path.exists(dir_jobstatus):
         os.mkdir(dir_jobstatus)
-    dir_js = assist.job_status(dir_jobstatus, re.split('[-.]', args.config)[1])
+    dir_js = assist.job_status(dir_jobstatus, re.split('[-.]', args.config)[-2])
 
     allmols = config['molecules']
     allmols.sort()

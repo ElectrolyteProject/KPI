@@ -10,7 +10,9 @@ import os
 import pandas as pd
 import random
 import time
+import signal
 from scipy.integrate import trapz
+from scipy import stats
 import json
 import string
 from typing import Dict, List, Tuple
@@ -128,6 +130,9 @@ def mkfile_lmp(dir_run, mol_info: Dict) -> str:
     sh_command = 'ligpargen -r %s -i %s -c 0 -o 0 -cgen CM1A -p %s' % (mol_name,
                                                                        pdb_path,
                                                                        os.path.join(dir_run, 'lpgtmp'))
+    #sh_command = 'ligpargen -n %s -s "%s" -c 0 -o 0 -cgen CM1A -p %s' % (mol_name,
+    #                                                                     mol_info['SMILES'],
+    #                                                                     os.path.join(dir_run, 'lpgtmp'))
     try:
         custom_shell.execute(sh_command, dir_run)
     except custom_shell.ShellError:
@@ -195,7 +200,7 @@ def modfile_lmp(dir_run, mol_name: str, charge_path: str, lmpog_path: str) -> st
     else:
         for index, atom in enumerate(atomlist):
             if atom not in exatoms:
-                chglist1[index] = chglist1[index] - sumchg
+                chglist1[index] = round(chglist1[index] - sumchg, 4)
                 break
         chglist = chglist1
     with open(lmpog_path, 'r') as f:
@@ -442,7 +447,7 @@ def md_judge(dir_run):
         raise Exception
 
 
-def job(dir_run: str, in_template: str, model: str, compute_type: str, ncores: int = 4) -> List[str]:
+def job(dir_run: str, in_template: str, model: str, compute_type: str, sc: str = 'zghpc', ncores: int = 4):
     '''
     Modify `in.lammps` files for the MD job.
 
@@ -451,6 +456,8 @@ def job(dir_run: str, in_template: str, model: str, compute_type: str, ncores: i
     - in_template: Name of the in.lammps template file.
     - model: Model name.
     - compute_type: The compute keywords of the MD job, 0:None/1:dipole/2:pressure/3:msd.
+    - sc: Supercomputer name: zghpc, zghpc_gpu, ts1000 (up to 20230816)
+    - ncores: Available cores.
     '''
     init = local_fs.load_json_file(os.path.join(gc.kPublicFilesDir, 'lammps.init'))
     compute_commands = lammps_fix_commands(compute_type)
@@ -472,15 +479,40 @@ def job(dir_run: str, in_template: str, model: str, compute_type: str, ncores: i
         fout.write(filled_content)
     dir_sub = os.path.join(dir_run, 'lammps.sh')
     with open(dir_sub, 'w+') as f2:
-        f2.write('#!/bin/bash\n'
-                 '#SBATCH -J lmp\n'
-                 '#SBATCH -N 1\n'
-                 '#SBATCH -n %s\n' % ncores +
-                 '#SBATCH -o lammps.log\n'
-                 '#SBATCH -e stderr.%j\n'
-                 '\n'
-                 'module load LAMMPS/23Jun2022\n'
-                 'mpirun lmp -sf omp -pk omp 0 neigh yes -in in.lammps\n')
+        if sc == 'zghpc':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J lmp\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o lammps.log\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n' +
+                     'module load LAMMPS/23Jun2022\n'
+                     'mpirun lmp -sf omp -pk omp 0 neigh yes -in in.lammps\n')
+        elif sc == 'zghpc_gpu':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J lmp\n'
+                     '#SBATCH -p gpu\n'
+                     '#SBATCH --gpus t4:2\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o lammps.log\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n' +
+                     'module load LAMMPS/23Jun2022-gpu\n'
+                     'mpirun lmp -sf gpu -pk gpu 2 -in in.lammps\n')
+        elif sc == 'ts1000':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J lmp\n'
+                     '#SBATCH -p cnall\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o lammps.log\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n'
+                     'module load compilers/intel/oneapi-2023/config\n'
+                     'module load soft/lammps/lammps-22Dec2022\n'
+                     'mpirun lmp_oneapi -sf omp -pk omp 0 neigh yes -in in.lammps\n')
 
 
 def caldc(in_path: str, log_path: str, dipole_path: str,
@@ -770,7 +802,7 @@ def _least_squares(x: np.array, y: np.array) -> Tuple[np.array, np.array]:
     return a, b
 
 
-def calmsd(dir_run, model: str, mol_names: List[str]) -> Tuple[list, str]:
+def calmsd(dir_run, model: str, mol_names: List[str]) -> Tuple[list, str, float, list]:
     '''Calculate the msd and diffusivity of each composition in the electrolyte.
 
     Args:
@@ -780,10 +812,15 @@ def calmsd(dir_run, model: str, mol_names: List[str]) -> Tuple[list, str]:
     Returns:
     - diffs: List of the diffusivity of each composition
     - excelpath: Excel file of the msd results
+    - conductivity: Ionic conductivity, S/cm
+    - betas: List of beta values for fitting MSD
     '''
-    shutil.copyfile(os.path.join(dir_run, '%s_unwrapped.lammpstrj' % model),
-                    os.path.join(dir_run, '%s_unwrapped.lammpsdump' % model))
-    u = mda.Universe(os.path.join(dir_run, '%s_unwrapped.lammpsdump' % model))
+    shutil.copyfile(os.path.join(dir_run, f'{model}_unwrapped.lammpstrj'),
+                    os.path.join(dir_run, f'{model}_unwrapped.lammpsdump'))
+    u = mda.Universe(
+        os.path.join(dir_run, f'{model}.data'),
+        os.path.join(dir_run, f'{model}_unwrapped.lammpsdump')
+    )
     # a = u.select_atoms('type x', periodic=True)
     an = _atomnum(dir_run, mol_names)
     mol_type = 'type %s' % an[0]
@@ -813,8 +850,9 @@ def calmsd(dir_run, model: str, mol_names: List[str]) -> Tuple[list, str]:
             D = slope * pow(10, -6) / 6  # unit = m^2/s
             diffs.append('%s = %s' % (names[index], D))
     writer.save()
-    os.remove(os.path.join(dir_run, '%s_unwrapped.lammpsdump' % model))
-    return diffs, excelpath
+    cond, betas = calcond(u, anion_type, cation_type)
+    os.remove(os.path.join(dir_run, f'{model}_unwrapped.lammpsdump'))
+    return diffs, excelpath, cond, betas
 
 
 def calrdfCN(dir_run, model, mol_names, mol_nums, V, f1=1, f2=5000, r=10, dr=0.02):
@@ -921,6 +959,330 @@ def extract_walltime(log_path: str) -> float:
                 hms[id] += int(re.split('[:\n ]', info)[id - 4])
     time = round(hms[0] + hms[1] / 60 + hms[2] / 3600, 4)
     return time
+
+
+## Define functions to compute Onsager transport coefficients
+def define_atom_types(run, anion_type, cation_type):
+    """
+    Sorts atoms in the MDAnalysis universe based on type (cation and anion).
+    Selections must be a single atom (rather than a molecule center of mass).
+    :param run: MDAnalysis universe
+    :param anion_type: string, type number corresponding to anions in the LAMMPS input files
+    :param cation_type: string, type number corresponding to cations in the LAMMPS input files
+    :return cations, anions: MDAnalysis AtomGroups corresponding to cations and anions
+    """
+    anions = run.select_atoms(anion_type)
+    cations = run.select_atoms(cation_type)
+    return cations, anions
+
+
+### Functions for ion correlation analysis
+# Functions for computing "MSDs"
+# Algorithms in this section are adapted from DOI: 10.1051/sfn/201112010 and
+# https://stackoverflow.com/questions/34222272/computing-mean-square-displacement-using-python-and-fft
+def autocorrFFT(x):
+    """
+    Calculates the autocorrelation function using the fast Fourier transform.
+    :param x: array[float], function on which to compute autocorrelation function
+    :return: acf: array[float], autocorrelation function
+    """
+    N=len(x)
+    F = np.fft.fft(x, n=2*N)
+    PSD = F * F.conjugate()
+    res = np.fft.ifft(PSD)
+    res= (res[:N]).real
+    n=N*np.ones(N)-np.arange(0,N)
+    acf = res/n
+    return acf
+
+
+def msd_straight_forward(r):
+    shifts = np.arange(len(r))
+    msds = np.zeros(shifts.size)
+
+    for i, shift in enumerate(shifts):
+        diffs = r[:-shift if shift else None] - r[shift:]
+        sqdist = np.square(diffs).sum(axis=1)
+        msds[i] = sqdist.mean()
+
+
+def msd_fft(r):
+    """
+    Computes mean square displacement using the fast Fourier transform.
+    :param r: array[float], atom positions over time
+    :return: msd: array[float], mean-squared displacement over time
+    """
+    N=len(r)
+    D=np.square(r).sum(axis=1)
+    D=np.append(D,0)
+    S2=sum([autocorrFFT(r[:, i]) for i in range(r.shape[1])])
+    Q=2*D.sum()
+    S1=np.zeros(N)
+    for m in range(N):
+        Q=Q-D[m-1]-D[N-m]
+        S1[m]=Q/(N-m)
+    msd = S1-2*S2
+    return msd
+
+
+def cross_corr(x, y):
+    """
+    Calculates cross-correlation function of x and y using the
+    fast Fourier transform.
+    :param x: array[float], data set 1
+    :param y: array[float], data set 2
+    :return: cf: array[float], cross-correlation function
+    """
+    N=len(x)
+    F1 = np.fft.fft(x, n=2**(N*2 - 1).bit_length())
+    F2 = np.fft.fft(y, n=2**(N*2 - 1).bit_length())
+    PSD = F1 * F2.conjugate()
+    res = np.fft.ifft(PSD)
+    res= (res[:N]).real
+    n=N*np.ones(N)-np.arange(0,N)
+    cf = res/n
+    return cf
+
+
+def msd_fft_cross(r, k):
+    """
+    Calculates "MSD" (cross-correlations) using the fast Fourier transform.
+    :param r: array[float], positions of atom type 1 over time
+    :param k: array[float], positions of atom type 2 over time
+    :return: msd: array[float], "MSD" over time
+    """
+    N=len(r)
+    D=np.multiply(r,k).sum(axis=1)
+    D=np.append(D,0)
+    S2=sum([cross_corr(r[:, i], k[:,i]) for i in range(r.shape[1])])
+    S3=sum([cross_corr(k[:, i], r[:,i]) for i in range(k.shape[1])])
+    Q=2*D.sum()
+    S1=np.zeros(N)
+    for m in range(N):
+        Q=Q-D[m-1]-D[N-m]
+        S1[m]=Q/(N-m)
+    msd = S1-S2-S3
+    return msd
+
+
+# Functions for setting up trajectory data
+def create_position_arrays(u, anions, cations, times, run_start, dt_collection):
+    """
+    Creates an array containing the positions of all cations and anions over time.
+    :param u: MDAnalysis universe
+    :param anions: MDAnalysis AtomGroup containing all anions (assumes anions are single atoms)
+    :param cations: MDAnalysis AtomGroup containing all cations (assumes cations are single atoms)
+    :param times: array[float], times at which position data was collected in the simulation
+    :return anion_positions, cation_positions: array[float,float,float], array with all
+    cation/anion positions. Indices correspond to time, ion index, and spatial dimension
+    (x,y,z), respectively
+    """
+    time = 0
+    anion_positions = np.zeros((len(times), len(anions), 3))
+    cation_positions = np.zeros((len(times), len(cations), 3))
+    for ts in u.trajectory[int(run_start/dt_collection):]:
+        anion_positions[time, :, :] = anions.positions - u.atoms.center_of_mass(pbc=True)
+        cation_positions[time, :, :] = cations.positions - u.atoms.center_of_mass(pbc=True)
+        time += 1
+    return anion_positions, cation_positions
+
+
+def calc_Lii_self(atom_positions, times):
+    """
+    Calculates the "MSD" for the self component for a diagonal transport coefficient (L^{ii}).
+    :param atom_positions: array[float,float,float], position of each atom over time.
+    Indices correspond to time, ion index, and spatial dimension (x,y,z), respectively.
+    :param times: array[float], times at which position data was collected in the simulation
+    :return msd: array[float], "MSD" corresponding to the L^{ii}_{self} transport
+    coefficient at each time
+    """
+    Lii_self = np.zeros(len(times))
+    n_atoms = np.shape(atom_positions)[1]
+    for atom_num in (range(n_atoms)):
+        r = atom_positions[:,atom_num, :]
+        msd_temp = msd_fft(np.array(r))
+        Lii_self += msd_temp
+    msd = np.array(Lii_self)
+    return msd
+
+
+def calc_Lii(atom_positions, times):
+    """
+    Calculates the "MSD" for the diagonal transport coefficient L^{ii}.
+    :param atom_positions: array[float,float,float], position of each atom over time.
+    Indices correspond to time, ion index, and spatial dimension (x,y,z), respectively.
+    :param times: array[float], times at which position data was collected in the simulation
+    :return msd: array[float], "MSD" corresponding to the L^{ii} transport
+    coefficient at each time
+    """
+    r_sum = np.sum(atom_positions, axis = 1)
+    msd = msd_fft(r_sum)
+    return np.array(msd)
+
+
+def calc_Lij(cation_positions, anion_positions, times):
+    """
+    Calculates the "MSD" for the off-diagonal transport coefficient L^{ij}, i \neq j.
+    :param cation_positions, anion_positions: array[float,float,float], position of each
+    atom (anion or cation, respectively) over time. Indices correspond to time, ion index,
+    and spatial dimension (x,y,z), respectively.
+    :param times: array[float], times at which position data was collected in the simulation
+    :return msd: array[float], "MSD" corresponding to the L^{ij} transport coefficient at
+    each time.
+    """
+    r_cat = np.sum(cation_positions, axis = 1)
+    r_an = np.sum(anion_positions, axis = 1)
+    msd = msd_fft_cross(np.array(r_cat),np.array(r_an))
+    return np.array(msd)
+
+
+# Functions for computing all transport coefficients
+def compute_all_Lij(cation_positions, anion_positions, times, volume, kbT):
+    """
+    Computes the "MSDs" for all transport coefficients.
+    :param cation_positions, anion_positions: array[float,float,float], position of each
+    atom (anion or cation, respectively) over time. Indices correspond to time, ion index,
+    and spatial dimension (x,y,z), respectively.
+    :param times: array[float], times at which position data was collected in the simulation
+    :param volume: float, volume of simulation box
+    :return msds_all: list[array[float]], the "MSDs" corresponding to each transport coefficient,
+    L^{++}, L^{++}_{self}, L^{--}, L^{--}_{self}, L^{+-}
+    """
+    msd_self_cation = calc_Lii_self(cation_positions, times)/6.0/kbT/volume
+    msd_self_anion =  calc_Lii_self(anion_positions, times)/6.0/kbT/volume
+    msd_cation = calc_Lii(cation_positions, times)/6.0/kbT/volume
+    msd_anion = calc_Lii(anion_positions, times)/6.0/kbT/volume
+    msd_distinct_catAn = calc_Lij(cation_positions, anion_positions, times)/6.0/kbT/volume
+    msds_all = [msd_cation, msd_self_cation, msd_anion, msd_self_anion, msd_distinct_catAn]
+    return msds_all
+
+
+def get_beta(msd: np.ndarray, time_array: np.ndarray, start: int, end: int) -> tuple:
+    """Fits the MSD to the form t^(beta) and returns beta. beta = 1 corresponds to the diffusive regime.
+
+    Args:
+        msd (numpy.array): mean squared displacement
+        time_array (numpy.array): times at which position data was collected in the simulation
+        start (int): index at which to start fitting linear regime of the MSD
+        end (int): index at which to end fitting linear regime of the MSD
+
+    Returns beta (int) and the range of beta values within the region
+    """
+    msd_slope = np.gradient(np.log(msd[start:end]), np.log(time_array[start:end]))
+    beta = np.mean(np.array(msd_slope))
+    beta_range = np.max(msd_slope) - np.min(msd_slope)
+    return beta, beta_range
+
+
+def choose_msd_fitting_region(msd: np.ndarray, time_array: np.ndarray) -> tuple:
+    """Chooses the optimal fitting regime for a mean-squared displacement.
+    The MSD should be of the form t^(beta), where beta = 1 corresponds
+    to the diffusive regime; as a rule of thumb, the MSD should exhibit this
+    linear behavior for at least a decade of time. Finds the region of the
+    MSD with the beta value closest to 1.
+
+    Note:
+       If a beta value greater than 0.9 cannot be found, returns a warning
+       that the computed conductivity may not be reliable, and that longer
+       simulations or more replicates are necessary.
+
+    Args:
+        msd (numpy.array): mean squared displacement
+        time_array (numpy.array): times at which position data was collected in the simulation
+
+    Returns at tuple with the start of the fitting regime (int), end of the
+    fitting regime (int), and the beta value of the fitting regime (float).
+    """
+    beta_best = 0  # region with greatest linearity (beta = 1)
+    # choose fitting regions to check
+    for i in np.logspace(np.log10(2), np.log10(len(time_array) / 10), 10):  # try 10 regions
+        start = int(i)
+        end = int(i * 10)  # fit over one decade
+        beta, beta_range = get_beta(msd, time_array, start, end)
+        slope_tolerance = 2  # acceptable level of noise in beta values
+        # check if beta in this region is better than regions tested so far
+        if (np.abs(beta - 1) < np.abs(beta_best - 1) and beta_range < slope_tolerance) or beta_best == 0:
+            beta_best = beta
+            start_final = start
+            end_final = end
+    if beta_best < 0.9:
+        print(f"WARNING: MSD is not sufficiently linear (beta = {beta_best}). Consider running simulations longer.")
+    return start_final, end_final, beta_best
+
+
+def fit_data(f, start, end, times):
+    """
+    Perform a linear regression.
+    :param f: array[float], "MSD" data
+    :param start: int, time index at which to start fitting
+    :param end: int, time index at which to end fitting
+    :param times: array[float], times at which position data was collected in the simulation
+    :return lij: float, transport coefficient, i.e., slope of "MSD" in fitting region
+    """
+    slope, intercept, r_value, p_value, std_err = stats.linregress(times[start:end], f[start:end])
+    lij = slope
+    return lij
+
+
+def calcond(run, anion_type, cation_type, t_total=2e7, dt=1, dt_collection=4e3, temp=298.15):
+    """
+    Args:
+    - t_total: Total simulation steps = Simulation time / Simulation timestep = 20 ns/ 1 fs
+    - dt: Simulation timestep, fs
+    - dt_collection: Position data is collected every dt_collection steps: 5000frames=4e3, 100frames=2e5
+    - temp: Temperature, default=298.15 K
+
+    Returns:
+    - conductivity: Ionic conductivity, S/cm
+    """
+    A2m = 1e-10  # Angstroms to m
+    fs2s = 1e-15  # femtoseconds to seconds
+    e2c = 1.60217662e-19  # elementary charge to Coulomb
+    convert = e2c ** 2 / fs2s / A2m / 100  # S/cm
+    kbT = 1.38064852e-23 * temp  # thermal energy, J
+
+    run_start = 0  # omit this many steps from beginning of run (equilibration time)
+    times = np.arange(0, t_total * dt + dt * dt_collection, dt * dt_collection, dtype=int)
+    # print(times)
+
+    volume = run.dimensions[0] ** 3.0  # Ang**3
+
+    # Create arrays for the positions of the cations and anions at each time
+    cations, anions = define_atom_types(run, anion_type=anion_type, cation_type=cation_type)
+    anion_positions, cation_positions = create_position_arrays(run, anions, cations, times, run_start, dt_collection)
+
+    # Compute the "MSDs" for each of the transport coefficients (the terms in the angular brackets above).
+    # Taking the slope of these "MSDs" in the linear regime will yield the transport coefficients.
+    msds_all = compute_all_Lij(cation_positions, anion_positions, times, volume, kbT)
+
+    betas = []
+    # #### $L^{++}$
+    # plt.plot(times, msds_all[0])
+    # plt.show()
+    msd = msds_all[0]
+    start, end, beta = choose_msd_fitting_region(msd, times)
+    betas.append(beta)
+    # print(start, end, beta)
+    l_plusplus = fit_data(msd, start, end, times)
+    # print("L^{++} = ", l_plusplus)
+    # #### $L^{--}$
+    msd = msds_all[2]
+    start, end, beta = choose_msd_fitting_region(msd, times)
+    betas.append(beta)
+    # print(start, end, beta)
+    l_minusminus = fit_data(msd, start, end, times)
+    # print("L^{--} = ", l_minusminus)
+    # #### $L^{+-}$
+    msd = msds_all[4]
+    start, end, beta = choose_msd_fitting_region(msd, times)
+    betas.append(beta)
+    # print(start, end, beta)
+    l_plusminus = fit_data(msd, start, end, times)
+    # print("L^{+-} = ", l_plusminus)
+
+    # ## Compute ionic conductivity
+    conductivity = (l_plusplus + l_minusminus - 2 * l_plusminus) * convert  # S/cm
+    return round(conductivity, 6), betas
 
 
 __all__ = [

@@ -70,7 +70,7 @@ def execute(sh_command: str, working_dir: str = None, env: Dict = None, executab
                        shell=True,
                        cwd=working_dir,
                        env=env)
-    process.communicate()
+    process.communicate(timeout=60)
     returncode = process.wait(timeout=5)
     if returncode != 0:
         raise ShellError(sh_command, returncode)

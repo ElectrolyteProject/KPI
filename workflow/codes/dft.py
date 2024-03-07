@@ -64,6 +64,30 @@ def _extract_coor(log_path: str) -> Tuple[str, List[str], int]:
     return r, mol_coor, img
 
 
+def _extract_elapsedtime(log_path: str) -> float:
+    '''Extract Gaussian running time.
+
+    Args:
+    - log_path: Path to the log file.
+
+    Returns:
+    - totaltime: Gaussian running time in unit hour.
+    '''
+    with open(log_path, 'r+') as f:
+        f.seek(0, 0)
+        infos = f.readlines()
+    hour = 0
+    minute = 0
+    second = 0
+    for info in infos:
+        if 'Elapsed time' in info:
+            hour += float(info.split()[-6])
+            minute += float(info.split()[-4])
+            second += float(info.split()[-2])
+    totaltime = round(hour + minute / 60 + second / 3600, 4)
+    return totaltime
+
+
 def _judge_spin(log_path: str) -> bool:
     '''Return the spin state of the system.'''
     with open(log_path, 'r') as fin:
@@ -320,7 +344,7 @@ def analyze_log(log_path: str) -> Dict[str, Any]:
     HFenergy, thermoenergy = _energies(log_path)
     HOMOLUMO = _homo_lumo(log_path, spin)
     dipole_moment = _dipole_moment(log_path)
-    if log_path.endswith('_vum.log'):
+    if log_path.endswith('_vum.log') and '+Li+' not in os.path.basename(log_path):
         extracted = {
             'radius': r,
             'coordinate_vum': mol_coor,
@@ -355,6 +379,17 @@ def analyze_log(log_path: str) -> Dict[str, Any]:
             'MKcharge_spinpop_cls': MKchargespinpop,
             'img_cls': str(img),
             'dipole_moment_cls(Debye)': dipole_moment,
+        }
+    elif log_path.endswith('+Li+_vum.log'):
+        extracted = {
+            'coordinate_cls_vum': mol_coor,
+            'HFenergy_cls_vum': str(HFenergy),
+            'thermochemistry_cls_vum': thermoenergy,
+            'HOMOLUMO_cls_vum': HOMOLUMO,
+            'NBOcharge_cls_vum': NBOcharge,
+            'MKcharge_spinpop_cls_vum': MKchargespinpop,
+            'img_cls_vum': str(img),
+            'dipole_moment_cls_vum(Debye)': dipole_moment,
         }
     else:
         extracted = {
@@ -437,14 +472,17 @@ def keywords(job_type: int) -> str:
     return keywords[str(job_type)]
 
 
-def job(dir_run, mol_info: Dict, chg_spmul: str, keywords: str,
-        solva_info: Dict = {}, ncores: int = 8) -> List[str]:
+def job(dir_run: str, mol_info: Dict, chg_spmul: str, keywords: str,
+        solva_info: Dict = {}, sc: str = 'zghpc', ncores: int = 8) -> List[str]:
     '''Make a Gaussian input file and execute it in a blocking way.
 
     Args:
+    - dir_run: The path where to run the Gaussian job.
     - mol_info: Molecule info containing name and coordinate.
     - chg_spmul: Charge and spin multiplicity of molecule.
     - keywords: Keywords to define the Gaussian job.
+    - solva_info: Solvation parameters.
+    - sc: Supercomputer name: zghpc, zghpc_gpu, ts1000 (up to 20230816)
     - ncores: Available cores.
 
     Returns:
@@ -495,15 +533,39 @@ def job(dir_run, mol_info: Dict, chg_spmul: str, keywords: str,
 
     dir_subscript = os.path.join(dir_run, 'gaussian.sh')
     with open(dir_subscript, 'w+') as f2:
-        f2.write('#!/bin/bash\n'
-                 '#SBATCH -J g16\n'
-                 '#SBATCH -N 1\n'
-                 '#SBATCH -n %s\n' % ncores +
-                 '#SBATCH -o stdout.%j\n'
-                 '#SBATCH -e stderr.%j\n'
-                 '\n'
-                 'module load Gaussian\n' +
-                 'g16 %s.gjf\n' % gjf_name)
+        if sc == 'zghpc':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J g16\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o stdout.%j\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n' +
+                     'module load Gaussian\n' +
+                     'g16 %s.gjf\n' % gjf_name)
+        elif sc == 'zghpc_gpu':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J g16\n'
+                     '#SBATCH -p gpu\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o stdout.%j\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n' +
+                     'module load Gaussian\n' +
+                     'g16 %s.gjf\n' % gjf_name)
+        elif sc == 'ts1000':
+            f2.write('#!/bin/bash\n'
+                     '#SBATCH -J g16\n'
+                     '#SBATCH -p cnall\n'
+                     '#SBATCH -N 1\n'
+                     '#SBATCH -n %s\n' % ncores +
+                     '#SBATCH -o stdout.%j\n'
+                     '#SBATCH -e stderr.%j\n'
+                     '\n' +
+                     'g16 %s.gjf\n' % gjf_name)
+        else:
+            raise ValueError('Supercomputer not supported!')
     return [os.path.join(dir_run, gjf_name + '.log'), os.path.join(dir_run, gjf_name + '.chk')]
 
 
@@ -650,7 +712,7 @@ def _o_sites(mol,d=2.0):
             index=O_index[i]
             c_oxy=mol[index].coords #The coordinates of the oxygen atom
             #Getting the neighbors of the atom
-            neighbors=mol.get_neighbors(mol.sites[index],r=1.6)
+            neighbors=mol.get_neighbors(mol.sites[index],r=1.8) # from 1.6 to 1.8, such as Si-O bond length exceeds 1.6
             if len(neighbors) > 2:
                 print('Warning! The oxygen is bound with more than two atoms')
             elif len(neighbors) == 2:
@@ -681,6 +743,34 @@ def _f_sites(mol,d=2.0):
     if len(F_index)>0:
         for i in range(len(F_index)):
             index=F_index[i]
+            c_flu=mol[index].coords #The coordinates of the fluorine atom
+            #Getting the neighbors of the atom
+            neighbors=mol.get_neighbors(mol.sites[index],r=1.6)
+            if len(neighbors) > 1:
+                print('Warning! The fluorine is bound with more than one atoms')
+            elif len(neighbors) == 1:
+                c0=neighbors[0].coords
+                Li_coord = _coords_cal_2(c_flu,c0,d)
+                Li_coords.append(Li_coord)
+            else:
+                print('Warning! There is not neighbors found with 1.6 Å of the fluorine')
+    return Li_coords
+
+
+def _n_sites(mol,d=2.0):
+    """
+    mol: the pristine molecule
+    d: the distance between Li and N
+    return: the coordinates of Li sites
+    """
+    N_index=[] #The fluorine sites in the molecule
+    for i,site_i in enumerate(mol):
+        if 'N' in site_i:
+            N_index.append(i)
+    Li_coords=[]
+    if len(N_index)>0:
+        for i in range(len(N_index)):
+            index=N_index[i]
             c_flu=mol[index].coords #The coordinates of the fluorine atom
             #Getting the neighbors of the atom
             neighbors=mol.get_neighbors(mol.sites[index],r=1.6)
@@ -808,14 +898,14 @@ def _distance_checking(mol,d_Li_H = 1.5, d_Li_X = 1.8):
 def _append_li_sites(mol):
     """
     Add a Li atom to pristine molecules
-    Currently, only O and F sites are considered as the binding sites
+    Currently, only N, O and F sites are considered as the binding sites #20230817 N added
     Return: The lists of new molecules with a Li
     """
     Li_O = _o_sites(mol, d=2.0)
     Li_F = _f_sites(mol, d=2.0)
+    Li_N = _n_sites(mol, d=2.0)
     Li_multi = _multi_interaction_sites(mol)
-    Li_sites = Li_O + Li_F + Li_multi
-
+    Li_sites = Li_O + Li_F + Li_N + Li_multi
     new_mols = []
     structs = []
     # The molecule is first converted into structure and dedup
