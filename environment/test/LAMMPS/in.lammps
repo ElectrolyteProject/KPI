@@ -19,7 +19,7 @@ improper_style		cvff
 kspace_style		pppm 1.0e-4
 
 # system definition
-read_data		760DME+200LiFSI_op.data
+read_data		760DME+200LiFSI.data
 
 neighbor		2.0 bin
 neigh_modify		every 5 delay 0 check yes
@@ -38,8 +38,8 @@ dump			1 all custom 1000 760DME+200LiFSI_op.lammpstrj id type x y z
 dump			2 all custom 1000 760DME+200LiFSI_op_unwrapped.lammpstrj id type xu yu zu
 
 fix			7 all nvt temp 298.0 298.0 1000
-run			100000
+run			1000
 unfix			7
 
-write_data		760DME+200LiFSI_op_op.data
-write_restart		760DME+200LiFSI_op_op.restart
+write_data		760DME+200LiFSI_op.data
+write_restart		760DME+200LiFSI_op.restart
